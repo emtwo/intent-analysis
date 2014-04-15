@@ -37,7 +37,8 @@ def loadAllFromPostgres(type, namespace, uuid=None, count=1):
 	for i in xrange(count):
 		allUserInterests = executeQuery("select * from submission_interests where user_id=" + str(userIds[i][0]) + " and type_namespace = '" + type + "." + namespace + "'")
 		points = mapInterestToDatesSQL(allUserInterests)
-		plotInterestsTimeline(points)
+		points = plotInterestsTimeline(points)
+		computeIntents(points)
 
 def mapInterestToDatesSQL(interestData):
 	points = {}
@@ -100,30 +101,53 @@ def loadAllFromJSON(file, type, namespace, uuid=None, count=1):
 ## Generic Functionality
 ###############################################################################
 
+def computeIntents(points):
+	sortedByWeight = sorted(points.items(), key=lambda (k, v): v['maxWeight'], reverse=True)
+	sortedByCount = sorted(points.items(), key=lambda (k, v): v['clusterCount'], reverse=True)
+
+	rankWeight = 1
+	rankCluster = 1
+	for i in xrange(len(points)):
+		if (i > 0 and (sortedByWeight[i - 1][1]["maxWeight"] != sortedByWeight[i][1]["maxWeight"])):
+			rankWeight += 1
+		if (i > 0 and (sortedByCount[i - 1][1]["clusterCount"] != sortedByCount[i][1]["clusterCount"])):
+			rankCluster += 1
+
+		if ('weightSum' not in points[sortedByWeight[i][0]]): points[sortedByWeight[i][0]]['weightSum'] = 0
+		if ('weightSum' not in points[sortedByCount[i][0]]): points[sortedByCount[i][0]]['weightSum'] = 0
+
+		points[sortedByWeight[i][0]]['weightSum'] += rankWeight
+		points[sortedByCount[i][0]]['weightSum'] += rankCluster
+
+	sortedBySummedWeight = sorted(points.items(), key=lambda (k, v): v['weightSum'])
+	print sortedBySummedWeight
+
 def cluster(points, weights):
 	# Create an array with multiple entries per day instead of a weight per day
 	clusterArr = []
 	pointToWeightMap = {}
 	for p, w in zip(points, weights):
 		pointToWeightMap[dates.num2date(p[0])] = w
-		for i in xrange(w): clusterArr.append(p)
+		#for i in xrange(w): clusterArr.append(p)
 
 	# Compute DBSCAN
-	db = DBSCAN(eps=2, min_samples=1).fit(np.array(clusterArr))
+	db = DBSCAN(eps=2, min_samples=1).fit(np.array(points))
 	labelSet = set(db.labels_)
 
 	# Number of clusters in labels, ignoring noise if present.
 	n_clusters_ = len(labelSet) - (1 if -1 in db.labels_ else 0)
-	print n_clusters_
-	
+	#print n_clusters_
+
 	colors = cm.Spectral(np.linspace(0, 1, len(labelSet)))
 	for k, col in zip(labelSet, colors):
 		if k == -1: col = 'k' # black for noise.
 		class_members = [index[0] for index in np.argwhere(db.labels_ == k)]
 		for index in class_members:
-			point = clusterArr[index]
+			point = points[index]
 			date = dates.num2date(point[0])
 			plt.scatter(date, point[1], color=col, s=pointToWeightMap[date])
+
+	return n_clusters_
 
 def plotInterestsTimeline(points):
 	plt.xticks(rotation=25)
@@ -133,14 +157,16 @@ def plotInterestsTimeline(points):
 	for index, interest in enumerate(points):
 		x = points[interest]['x']
 		y = [index] * len(x)
-		s = points[interest]['weight'];
-		cluster(zip([dates.date2num(xval) for xval in x], y), s)
+		s = points[interest]['weight']
+		points[interest]["clusterCount"] = cluster(zip([dates.date2num(xval) for xval in x], y), s)
+		points[interest]["maxWeight"] = max(points[interest]['weight'])
 
 	plt.show()
+	return points
 
-#print executeQuery('SELECT version()')
-loadAllFromJSON("payloads.txt", "keywords", "edrules", uuid="1c4a61042de89448a24002ad5983cd2b")
 # Load data
+loadAllFromPostgres("keywords", "edrules", count=1)
+#points = loadAllFromJSON("payloads.txt", "keywords", "edrules", count=3)
+
 #points = loadSinglePayload("marinas_interests", "keywords", "58-cat")
 #plotInterestsTimeline(points)
-#points = loadAllFromJSON("payloads.txt", "keywords", "edrules", count=3)
