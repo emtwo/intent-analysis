@@ -103,21 +103,27 @@ def loadAllFromJSON(file, type, namespace, uuid=None, count=1):
 
 def computeIntents(points):
 	sortedByWeight = sorted(points.items(), key=lambda (k, v): v['maxWeight'], reverse=True)
-	sortedByCount = sorted(points.items(), key=lambda (k, v): v['clusterCount'], reverse=True)
+	sortedByClusterCount = sorted(points.items(), key=lambda (k, v): v['clusterCount'], reverse=True)
+	sortedByDayCount = sorted(points.items(), key=lambda (k, v): v['dayCount'])
 
 	rankWeight = 1
 	rankCluster = 1
+	rankDay = 1
 	for i in xrange(len(points)):
 		if (i > 0 and (sortedByWeight[i - 1][1]["maxWeight"] != sortedByWeight[i][1]["maxWeight"])):
 			rankWeight += 1
-		if (i > 0 and (sortedByCount[i - 1][1]["clusterCount"] != sortedByCount[i][1]["clusterCount"])):
+		if (i > 0 and (sortedByClusterCount[i - 1][1]["clusterCount"] != sortedByClusterCount[i][1]["clusterCount"])):
 			rankCluster += 1
+		if (i > 0 and (sortedByDayCount[i - 1][1]["dayCount"] != sortedByDayCount[i][1]["dayCount"])):
+			rankDay += 1
 
 		if ('weightSum' not in points[sortedByWeight[i][0]]): points[sortedByWeight[i][0]]['weightSum'] = 0
-		if ('weightSum' not in points[sortedByCount[i][0]]): points[sortedByCount[i][0]]['weightSum'] = 0
+		if ('weightSum' not in points[sortedByClusterCount[i][0]]): points[sortedByClusterCount[i][0]]['weightSum'] = 0
+		if ('weightSum' not in points[sortedByDayCount[i][0]]): points[sortedByDayCount[i][0]]['weightSum'] = 0
 
 		points[sortedByWeight[i][0]]['weightSum'] += rankWeight
-		points[sortedByCount[i][0]]['weightSum'] += rankCluster
+		points[sortedByClusterCount[i][0]]['weightSum'] += rankCluster
+		points[sortedByDayCount[i][0]]['weightSum'] += rankDay
 
 	sortedBySummedWeight = sorted(points.items(), key=lambda (k, v): v['weightSum'])
 	print sortedBySummedWeight
@@ -160,6 +166,7 @@ def plotInterestsTimeline(points):
 		s = points[interest]['weight']
 		points[interest]["clusterCount"] = cluster(zip([dates.date2num(xval) for xval in x], y), s)
 		points[interest]["maxWeight"] = max(points[interest]['weight'])
+		points[interest]["dayCount"] = len(x)
 
 	plt.show()
 	return points
