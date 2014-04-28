@@ -3,6 +3,8 @@ import itertools
 import datetime
 import psycopg2
 import sys
+from interest import Interest
+from day import Day
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -46,9 +48,8 @@ def mapInterestToDatesSQL(interestData):
 		interest = executeQuery("select name from categories where id='" + str(interestElement[5]) + "'")[0][0]
 		day = interestElement[0]
 		if interest not in points:
-			points[interest] = {'x':[], 'weight':[]}
-		points[interest]['x'].append(day)
-		points[interest]['weight'].append(sum(eval(interestElement[2])))
+			points[interest] = Interest(interest)
+		points[interest].addDateWeightPair(day, sum(eval(interestElement[2])))
 	return points
 
 ###############################################################################
@@ -64,9 +65,8 @@ def mapInterestToDates(interests, type, namespace):
 		interestList = interests[day][type][namespace]
 		for interest in interestList:
 			if interest not in points:
-				points[interest] = {'x':[], 'weight':[]}
-			points[interest]['x'].append(daysPostEpochToDate(day))
-			points[interest]['weight'].append(sum(interestList[interest]))
+				points[interest] = Interest(interest)
+			points[interest].addDateWeightPair(daysPostEpochToDate(day), sum(interestList[interest]))
 	return points
 
 def loadSinglePayload(file, type, namespace):
@@ -95,46 +95,41 @@ def loadAllFromJSON(file, type, namespace, uuid=None, count=1):
 			savePayload(line)
 		data = json.loads(line)
 		points = mapInterestToDates(data[1]["interests"], type, namespace)
-		plotInterestsTimeline(points)
+		points = plotInterestsTimeline(points)
+		computeIntents(points)
 
 ###############################################################################
 ## Generic Functionality
 ###############################################################################
 
 def computeIntents(points):
-	sortedByWeight = sorted(points.items(), key=lambda (k, v): v['maxWeight'], reverse=True)
-	sortedByClusterCount = sorted(points.items(), key=lambda (k, v): v['clusterCount'], reverse=True)
-	sortedByDayCount = sorted(points.items(), key=lambda (k, v): v['dayCount'])
+	sortedByWeight = sorted(points.items(), key=lambda (k, v): v.maxWeight, reverse=True)
+	sortedByClusterCount = sorted(points.items(), key=lambda (k, v): v.clusterCount, reverse=True)
+	sortedByDayCount = sorted(points.items(), key=lambda (k, v): v.dayCount)
 
 	rankWeight = 1
 	rankCluster = 1
 	rankDay = 1
 	for i in xrange(len(points)):
-		if (i > 0 and (sortedByWeight[i - 1][1]["maxWeight"] != sortedByWeight[i][1]["maxWeight"])):
+		if (i > 0 and (sortedByWeight[i - 1][1].maxWeight != sortedByWeight[i][1].maxWeight)):
 			rankWeight += 1
-		if (i > 0 and (sortedByClusterCount[i - 1][1]["clusterCount"] != sortedByClusterCount[i][1]["clusterCount"])):
+		if (i > 0 and (sortedByClusterCount[i - 1][1].clusterCount != sortedByClusterCount[i][1].clusterCount)):
 			rankCluster += 1
-		if (i > 0 and (sortedByDayCount[i - 1][1]["dayCount"] != sortedByDayCount[i][1]["dayCount"])):
+		if (i > 0 and (sortedByDayCount[i - 1][1].dayCount != sortedByDayCount[i][1].dayCount)):
 			rankDay += 1
 
-		if ('weightSum' not in points[sortedByWeight[i][0]]): points[sortedByWeight[i][0]]['weightSum'] = 0
-		if ('weightSum' not in points[sortedByClusterCount[i][0]]): points[sortedByClusterCount[i][0]]['weightSum'] = 0
-		if ('weightSum' not in points[sortedByDayCount[i][0]]): points[sortedByDayCount[i][0]]['weightSum'] = 0
+		points[sortedByWeight[i][0]].weightSum += rankWeight
+		points[sortedByClusterCount[i][0]].weightSum += rankCluster
+		points[sortedByDayCount[i][0]].weightSum += rankDay
 
-		points[sortedByWeight[i][0]]['weightSum'] += rankWeight
-		points[sortedByClusterCount[i][0]]['weightSum'] += rankCluster
-		points[sortedByDayCount[i][0]]['weightSum'] += rankDay
-
-	sortedBySummedWeight = sorted(points.items(), key=lambda (k, v): v['weightSum'])
-	print sortedBySummedWeight
+	sortedBySummedWeight = sorted(points.items(), key=lambda (k, v): v.weightSum)
+	print [i[0] for i in sortedBySummedWeight]
 
 def cluster(points, weights):
 	# Create an array with multiple entries per day instead of a weight per day
-	clusterArr = []
 	pointToWeightMap = {}
 	for p, w in zip(points, weights):
 		pointToWeightMap[dates.num2date(p[0])] = w
-		#for i in xrange(w): clusterArr.append(p)
 
 	# Compute DBSCAN
 	db = DBSCAN(eps=2, min_samples=1).fit(np.array(points))
@@ -157,16 +152,14 @@ def cluster(points, weights):
 
 def plotInterestsTimeline(points):
 	plt.xticks(rotation=25)
-	plt.yticks(list(xrange(len(points))), [interest for interest in  points])
+	plt.yticks(list(xrange(len(points))), [interest for interest in points])
 	plt.margins(0.05)
 
 	for index, interest in enumerate(points):
-		x = points[interest]['x']
+		x = points[interest].dates
 		y = [index] * len(x)
-		s = points[interest]['weight']
-		points[interest]["clusterCount"] = cluster(zip([dates.date2num(xval) for xval in x], y), s)
-		points[interest]["maxWeight"] = max(points[interest]['weight'])
-		points[interest]["dayCount"] = len(x)
+		s = points[interest].weights
+		points[interest].setDimensions(max(s), cluster(zip([dates.date2num(xval) for xval in x], y), s))
 
 	plt.show()
 	return points
