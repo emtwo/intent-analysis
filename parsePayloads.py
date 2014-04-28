@@ -31,6 +31,7 @@ def executeQuery(query):
 		con.close()
 
 def loadAllFromPostgres(type, namespace, uuid=None, count=1):
+	users = []
 	userIds = executeQuery("select * from submission_interests as s left join users as u on s.user_id=u.id where uuid='" + uuid + "'") if uuid else executeQuery("select distinct user_id from submission_interests order by user_id asc")
 	if not userIds: 
 		print "No such user exists"
@@ -39,8 +40,9 @@ def loadAllFromPostgres(type, namespace, uuid=None, count=1):
 	for i in xrange(count):
 		allUserInterests = executeQuery("select * from submission_interests where user_id=" + str(userIds[i][0]) + " and type_namespace = '" + type + "." + namespace + "'")
 		points = mapInterestToDatesSQL(allUserInterests)
-		points = plotInterestsTimeline(points)
-		computeIntents(points)
+		users.append(points)
+
+	return users
 
 def mapInterestToDatesSQL(interestData):
 	# Populate points data
@@ -90,6 +92,7 @@ def savePayload(payload):
 	f.close()
 
 def loadAllFromJSON(file, type, namespace, uuid=None, count=1):
+	users = []
 	json_data = open(file);
 	if (uuid): count = 1
 
@@ -105,8 +108,9 @@ def loadAllFromJSON(file, type, namespace, uuid=None, count=1):
 			savePayload(line)
 		data = json.loads(line)
 		points = mapInterestToDates(data[1]["interests"], type, namespace)
-		points = plotInterestsTimeline(points)
-		computeIntents(points)
+		users.append(points)
+
+	return users
 
 ###############################################################################
 ## Generic Functionality
@@ -158,11 +162,12 @@ def plotInterestsTimeline(points):
 		plotInterest(points[interest])
 
 	plt.show()
-	return points
 
 # Load data
-loadAllFromPostgres("keywords", "edrules", count=1)
-#points = loadAllFromJSON("payloads.txt", "keywords", "edrules", count=3)
+users = loadAllFromPostgres("keywords", "edrules", count=3)
+#users = loadAllFromJSON("payloads.txt", "keywords", "edrules", count=3)
 
 #points = loadSinglePayload("marinas_interests", "keywords", "58-cat")
-#plotInterestsTimeline(points)
+for points in users:
+	computeIntents(points)
+	plotInterestsTimeline(points)
