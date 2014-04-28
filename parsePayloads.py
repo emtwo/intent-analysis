@@ -43,6 +43,7 @@ def loadAllFromPostgres(type, namespace, uuid=None, count=1):
 		computeIntents(points)
 
 def mapInterestToDatesSQL(interestData):
+	# Populate points data
 	points = {}
 	for interestElement in interestData:
 		interest = executeQuery("select name from categories where id='" + str(interestElement[5]) + "'")[0][0]
@@ -50,6 +51,10 @@ def mapInterestToDatesSQL(interestData):
 		if interest not in points:
 			points[interest] = Interest(interest)
 		points[interest].addDateWeightPair(day, sum(eval(interestElement[2])))
+
+	# Compute dimensions for each interest
+	for index, interest in enumerate(points):
+		points[interest].computeDimensions(index)
 	return points
 
 ###############################################################################
@@ -60,6 +65,7 @@ def daysPostEpochToDate(dayCount):
 	return datetime.datetime.fromtimestamp(int(dayCount) * 24 * 60 * 60)
 
 def mapInterestToDates(interests, type, namespace):
+	# Populate points data
 	points = {}
 	for day in interests:
 		interestList = interests[day][type][namespace]
@@ -67,6 +73,10 @@ def mapInterestToDates(interests, type, namespace):
 			if interest not in points:
 				points[interest] = Interest(interest)
 			points[interest].addDateWeightPair(daysPostEpochToDate(day), sum(interestList[interest]))
+
+	# Compute dimensions for each interest
+	for index, interest in enumerate(points):
+		points[interest].computeDimensions(index)
 	return points
 
 def loadSinglePayload(file, type, namespace):
@@ -125,30 +135,19 @@ def computeIntents(points):
 	sortedBySummedWeight = sorted(points.items(), key=lambda (k, v): v.weightSum)
 	print [i[0] for i in sortedBySummedWeight]
 
-def cluster(points, weights):
-	# Create an array with multiple entries per day instead of a weight per day
-	pointToWeightMap = {}
-	for p, w in zip(points, weights):
-		pointToWeightMap[dates.num2date(p[0])] = w
+def plotInterest(interest):
+	dateToWeightMap = {}
+	for d, w in zip(interest.dates, interest.weights):
+		dateToWeightMap[d] = w
 
-	# Compute DBSCAN
-	db = DBSCAN(eps=2, min_samples=1).fit(np.array(points))
-	labelSet = set(db.labels_)
-
-	# Number of clusters in labels, ignoring noise if present.
-	n_clusters_ = len(labelSet) - (1 if -1 in db.labels_ else 0)
-	#print n_clusters_
-
+	labelSet = set(interest.db.labels_)
 	colors = cm.Spectral(np.linspace(0, 1, len(labelSet)))
 	for k, col in zip(labelSet, colors):
 		if k == -1: col = 'k' # black for noise.
-		class_members = [index[0] for index in np.argwhere(db.labels_ == k)]
+		class_members = [index[0] for index in np.argwhere(interest.db.labels_ == k)]
 		for index in class_members:
-			point = points[index]
-			date = dates.num2date(point[0])
-			plt.scatter(date, point[1], color=col, s=pointToWeightMap[date])
-
-	return n_clusters_
+			date = interest.dates[index]
+			plt.scatter(date, interest.yVal, color=col, s=dateToWeightMap[date])
 
 def plotInterestsTimeline(points):
 	plt.xticks(rotation=25)
@@ -156,10 +155,7 @@ def plotInterestsTimeline(points):
 	plt.margins(0.05)
 
 	for index, interest in enumerate(points):
-		x = points[interest].dates
-		y = [index] * len(x)
-		s = points[interest].weights
-		points[interest].setDimensions(max(s), cluster(zip([dates.date2num(xval) for xval in x], y), s))
+		plotInterest(points[interest])
 
 	plt.show()
 	return points
